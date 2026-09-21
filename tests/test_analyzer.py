@@ -75,6 +75,88 @@ class JoernParserTests(unittest.TestCase):
         self.assertEqual(call["method"], "route_get")
         self.assertEqual(call["statement"], "return route_post()")
 
+    def test_query_matches_calls_by_name_and_excludes_definitions(self):
+        query = JoernAnalyzer._query("/tmp/sample.py", "/tmp/results.txt")
+
+        self.assertIn("call.name == function.name", query)
+        self.assertIn('(call.code.trim.startsWith("def ") == false)', query)
+        self.assertIn("call.lineNumber != function.lineNumber", query)
+
+    def test_parse_removes_definition_calls_and_filters_duplicate_methods(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "sample.py"
+            source.write_text(
+                "\n".join(
+                    [
+                        "class DatabaseManager:",
+                        "    def get_product(self, product_id):",
+                        "        return product_id",
+                        "",
+                        "class ProductService:",
+                        "    def __init__(self, database):",
+                        "        self.database = database",
+                        "",
+                        "    def get_product(self, product_id):",
+                        "        return self.database.get_product(product_id)",
+                        "",
+                        "database = DatabaseManager('db')",
+                        "product_service = ProductService(database)",
+                        "",
+                        "def route(product_id):",
+                        "    return product_service.get_product(product_id)",
+                    ]
+                )
+            )
+
+            result = JoernAnalyzer._parse(
+                "\n".join(
+                    [
+                        "FUNCTION|DatabaseManager.get_product",
+                        "CALL|DatabaseManager|get_product|2|def get_product(self, product_id):",
+                        (
+                            "CALL|ProductService|get_product|10|"
+                            "self.database.get_product(product_id)"
+                        ),
+                        (
+                            "CALL|GLOBAL|route|16|"
+                            "product_service.get_product(product_id)"
+                        ),
+                        "FUNCTION|ProductService.__init__",
+                        "FUNCTION|ProductService.get_product",
+                        "CALL|ProductService|get_product|9|def get_product(self, product_id):",
+                        (
+                            "CALL|ProductService|get_product|10|"
+                            "self.database.get_product(product_id)"
+                        ),
+                        (
+                            "CALL|GLOBAL|route|16|"
+                            "product_service.get_product(product_id)"
+                        ),
+                        "FUNCTION|route",
+                    ]
+                ),
+                source,
+            )
+
+        functions = {
+            function["name"]: function
+            for function in result["functions"]
+        }
+
+        database_calls = functions["DatabaseManager.get_product"]["calls"]
+        product_calls = functions["ProductService.get_product"]["calls"]
+
+        self.assertEqual(len(database_calls), 1)
+        self.assertEqual(
+            database_calls[0]["statement"],
+            "return self.database.get_product(product_id)",
+        )
+        self.assertEqual(len(product_calls), 1)
+        self.assertEqual(
+            product_calls[0]["statement"],
+            "return product_service.get_product(product_id)",
+        )
+
 
 class ReporterTests(unittest.TestCase):
 
@@ -232,6 +314,61 @@ class AIReviewerTests(unittest.TestCase):
         self.assertIn("XSS", prompt)
         self.assertIn("path traversal", prompt)
         self.assertIn("dead code/unreachable code", prompt)
+
+    def test_ai_review_retries_timeout_then_stops(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "sample.py"
+            source.write_text("def main():\n    pass\n")
+            result = {
+                "file": "sample.py",
+                "functions": [],
+            }
+            reviewer = AIReviewer(timeout=1, max_attempts=2, retry_delay=0)
+
+            with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+                with patch(
+                    "ai_reviewer.urllib.request.urlopen",
+                    side_effect=TimeoutError("The read operation timed out"),
+                ) as urlopen:
+                    review = reviewer.review(result, source)
+
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(urlopen.call_args_list[0].kwargs["timeout"], 1)
+        self.assertIn("failed after 2 attempts", review)
+        self.assertIn("timed out", review)
+
+    def test_ai_review_retries_timeout_then_succeeds(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return b'{"output_text": "AI review succeeded."}'
+
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "sample.py"
+            source.write_text("def main():\n    pass\n")
+            result = {
+                "file": "sample.py",
+                "functions": [],
+            }
+            reviewer = AIReviewer(timeout=1, max_attempts=2, retry_delay=0)
+
+            with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+                with patch(
+                    "ai_reviewer.urllib.request.urlopen",
+                    side_effect=[
+                        TimeoutError("The read operation timed out"),
+                        FakeResponse(),
+                    ],
+                ) as urlopen:
+                    review = reviewer.review(result, source)
+
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(review, "AI review succeeded.")
 
 
 if __name__ == "__main__":

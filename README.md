@@ -105,6 +105,10 @@ The `dataset/` folder is flat. Python files are stored directly inside it. It
 contains example Python programs and selected OWASP Benchmark Python files. See
 `dataset/SOURCE.md` for the source repositories and license notes.
 
+`dataset/test.py` is the main reference file used in this README. It contains
+classes, methods, repeated method names, normal calls, and visible security-risk
+patterns, so it is useful for checking the analyzer output.
+
 ## How to Run Locally
 
 ### Prerequisites
@@ -153,7 +157,7 @@ You can install Joern into that default location with:
 If Joern is installed somewhere else, pass its path with `--joern`:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --joern /path/to/joern
+python analyzer.py dataset/test.py --joern /path/to/joern
 ```
 
 You can also set `JOERN_PATH` in your shell, but this is optional. Docker sets
@@ -178,7 +182,7 @@ python -m unittest discover -s tests
 Then run the analyzer. For example:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --check-path --ai-review
+python analyzer.py dataset/test.py --check-path --ai-review
 ```
 
 ### Report Location
@@ -192,7 +196,7 @@ reports/
 Use `--reports` to choose another output folder:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --reports my_reports
+python analyzer.py dataset/test.py --reports my_reports
 ```
 
 ### Common Local Run Commands
@@ -212,25 +216,25 @@ python analyzer.py
 Analyze one Python file:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py
+python analyzer.py dataset/test.py
 ```
 
 Analyze one file with CHECK PATH:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --check-path
+python analyzer.py dataset/test.py --check-path
 ```
 
 Analyze one file with AI Review:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --ai-review
+python analyzer.py dataset/test.py --ai-review
 ```
 
 Analyze one file with CHECK PATH and AI Review:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --check-path --ai-review
+python analyzer.py dataset/test.py --check-path --ai-review
 ```
 
 Analyze the whole dataset with CHECK PATH:
@@ -305,7 +309,7 @@ docker compose run --rm analyzer
 Analyze one file:
 
 ```bash
-docker compose run --rm analyzer dataset/7_bank_account.py
+docker compose run --rm analyzer dataset/test.py
 ```
 
 The `--rm` option removes the temporary container after the run finishes. Docker
@@ -350,7 +354,7 @@ Run one file:
 docker run --rm \
   -v "$PWD/dataset:/app/dataset:ro" \
   -v "$PWD/reports:/app/reports" \
-  task2-analyzer dataset/7_bank_account.py
+  task2-analyzer dataset/test.py
 ```
 
 ## Extra Feature: CHECK PATH
@@ -364,13 +368,13 @@ marked unreachable.
 Run locally:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --check-path
+python analyzer.py dataset/test.py --check-path
 ```
 
 Run with Docker Compose:
 
 ```bash
-docker compose run --rm analyzer dataset/7_bank_account.py --check-path
+docker compose run --rm analyzer dataset/test.py --check-path
 ```
 
 ### CHECK PATH Status Values
@@ -394,13 +398,13 @@ locations.
 Run locally:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --ai-review
+python analyzer.py dataset/test.py --ai-review
 ```
 
 Run with Docker Compose:
 
 ```bash
-docker compose run --rm analyzer dataset/7_bank_account.py --ai-review
+docker compose run --rm analyzer dataset/test.py --ai-review
 ```
 
 ### What Is Sent to the AI
@@ -506,25 +510,25 @@ python analyzer.py
 Normal analysis of one file:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py
+python analyzer.py dataset/test.py
 ```
 
 CHECK PATH only:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --check-path
+python analyzer.py dataset/test.py --check-path
 ```
 
 AI Review only:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --ai-review
+python analyzer.py dataset/test.py --ai-review
 ```
 
 CHECK PATH plus AI Review:
 
 ```bash
-python analyzer.py dataset/7_bank_account.py --check-path --ai-review
+python analyzer.py dataset/test.py --check-path --ai-review
 ```
 
 Analyze the whole dataset with CHECK PATH:
@@ -558,25 +562,25 @@ docker compose run --rm analyzer
 Normal analysis of one file:
 
 ```bash
-docker compose run --rm analyzer dataset/7_bank_account.py
+docker compose run --rm analyzer dataset/test.py
 ```
 
 CHECK PATH only:
 
 ```bash
-docker compose run --rm analyzer dataset/7_bank_account.py --check-path
+docker compose run --rm analyzer dataset/test.py --check-path
 ```
 
 AI Review only:
 
 ```bash
-docker compose run --rm analyzer dataset/7_bank_account.py --ai-review
+docker compose run --rm analyzer dataset/test.py --ai-review
 ```
 
 CHECK PATH plus AI Review:
 
 ```bash
-docker compose run --rm analyzer dataset/7_bank_account.py --check-path --ai-review
+docker compose run --rm analyzer dataset/test.py --check-path --ai-review
 ```
 
 Analyze the whole dataset with CHECK PATH:
@@ -609,7 +613,7 @@ docker run --rm \
   --env-file .env \
   -v "$PWD/dataset:/app/dataset:ro" \
   -v "$PWD/reports:/app/reports" \
-  task2-analyzer dataset/7_bank_account.py --check-path --ai-review
+  task2-analyzer dataset/test.py --check-path --ai-review
 ```
 
 ## Testing
@@ -629,10 +633,12 @@ The tests cover:
 - parsing Joern output
 - source statement extraction
 - nested function context labels
+- duplicate method-name cleanup
 - report generation
 - report filename tags
 - CHECK PATH unreachable-call detection
 - AI review behavior when the API key is missing
+- AI review timeout retry behavior
 - the AI prompt risk categories
 
 The Docker image also runs the unit tests during the build:
@@ -667,10 +673,10 @@ sample_path_ai_analysis.txt
 
 Examples:
 
-- `7_bank_account_analysis.txt` is a normal report.
-- `7_bank_account_path_analysis.txt` includes CHECK PATH.
-- `7_bank_account_ai_analysis.txt` includes AI Review.
-- `7_bank_account_path_ai_analysis.txt` includes both extra sections.
+- `test_analysis.txt` is a normal report.
+- `test_path_analysis.txt` includes CHECK PATH.
+- `test_ai_analysis.txt` includes AI Review.
+- `test_path_ai_analysis.txt` includes both extra sections.
 
 `reports/` is ignored by git because reports are generated output.
 

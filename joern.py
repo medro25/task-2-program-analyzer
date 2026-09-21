@@ -98,6 +98,8 @@ class JoernAnalyzer:
                     }
                 )
 
+        JoernAnalyzer._clean_calls(functions, source_text)
+
         return {
             "file": source.name,
             "path": str(source),
@@ -120,12 +122,12 @@ importCode("{source}")
 val writer = new PrintWriter("{output}")
 
 val functions = cpg.method
-    .filter(m =>
+    .filter {{ m =>
         m.lineNumber.isDefined &&
         m.fullName.startsWith(":<module>.") &&
-        !m.name.startsWith("<") &&
-        !m.name.contains("metaClassAdapter")
-    )
+        (m.name.startsWith("<") == false) &&
+        (m.name.contains("metaClassAdapter") == false)
+    }}
     .l
 
 val functionNames = functions.map(_.name).toSet
@@ -141,10 +143,13 @@ functions.foreach {{ function =>
     )
 
     val calls = cpg.call
-        .filter(call =>
+        .filter {{ call =>
             functionNames.contains(call.name) &&
-            call.name == function.name
-        )
+            call.name == function.name &&
+            call.lineNumber != function.lineNumber &&
+            (call.code.trim.startsWith("def ") == false) &&
+            (call.code.trim.startsWith("async def ") == false)
+        }}
         .l
 
     calls.foreach {{ call =>
@@ -184,6 +189,156 @@ writer.close()
     @staticmethod
     def _scala_string(path):
         return str(path).replace("\\", "\\\\").replace('"', '\\"')
+
+    @classmethod
+    def _clean_calls(cls, functions, source_text):
+        function_names = [
+            cls._short_name(function["name"])
+            for function in functions
+        ]
+        duplicate_names = {
+            name
+            for name in function_names
+            if function_names.count(name) > 1
+        }
+        targets_by_line = cls._targets_by_line(source_text)
+
+        for function in functions:
+            short_name = cls._short_name(function["name"])
+            calls = []
+
+            for call in function["calls"]:
+                statement = call["statement"].lstrip()
+
+                if statement.startswith(("def ", "async def ")):
+                    continue
+
+                targets = targets_by_line.get(call.get("line"), set())
+                matching_targets = {
+                    target
+                    for target in targets
+                    if cls._short_name(target) == short_name
+                }
+
+                if (
+                    short_name in duplicate_names
+                    and matching_targets
+                    and function["name"] not in matching_targets
+                ):
+                    continue
+
+                calls.append(call)
+
+            function["calls"] = calls
+
+    @staticmethod
+    def _short_name(name):
+        return name.rsplit(".", 1)[-1]
+
+    @staticmethod
+    def _targets_by_line(source_text):
+        try:
+            tree = ast.parse(source_text)
+        except SyntaxError:
+            return {}
+
+        class_names = {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef)
+        }
+        var_types = {}
+        init_attrs = {}
+        attr_types = {}
+        targets = {}
+        class_stack = []
+
+        for class_node in ast.walk(tree):
+            if not isinstance(class_node, ast.ClassDef):
+                continue
+
+            for node in class_node.body:
+                if not (isinstance(node, ast.FunctionDef) and node.name == "__init__"):
+                    continue
+
+                params = [arg.arg for arg in node.args.args]
+
+                for statement in ast.walk(node):
+                    if not isinstance(statement, ast.Assign):
+                        continue
+
+                    for target in statement.targets:
+                        if (
+                            isinstance(target, ast.Attribute)
+                            and isinstance(target.value, ast.Name)
+                            and target.value.id == "self"
+                            and isinstance(statement.value, ast.Name)
+                            and statement.value.id in params
+                        ):
+                            index = params.index(statement.value.id) - 1
+                            if index < 0:
+                                continue
+
+                            init_attrs.setdefault(class_node.name, {})[
+                                target.attr
+                            ] = index
+
+        for statement in tree.body:
+            if not (
+                isinstance(statement, ast.Assign)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Name)
+                and statement.value.func.id in class_names
+            ):
+                continue
+
+            class_name = statement.value.func.id
+
+            for target in statement.targets:
+                if not isinstance(target, ast.Name):
+                    continue
+
+                var_types[target.id] = class_name
+
+                for attr, index in init_attrs.get(class_name, {}).items():
+                    if index < len(statement.value.args):
+                        argument = statement.value.args[index]
+
+                        if isinstance(argument, ast.Name) and argument.id in var_types:
+                            attr_types.setdefault(class_name, {})[attr] = var_types[
+                                argument.id
+                            ]
+
+        def receiver_type(node):
+            if isinstance(node, ast.Name):
+                if node.id == "self" and class_stack:
+                    return class_stack[-1]
+                return var_types.get(node.id)
+
+            if isinstance(node, ast.Attribute):
+                owner = receiver_type(node.value)
+                return attr_types.get(owner, {}).get(node.attr)
+
+            return None
+
+        def visit(node):
+            if isinstance(node, ast.ClassDef):
+                class_stack.append(node.name)
+
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                owner = receiver_type(node.func.value)
+
+                if owner:
+                    targets.setdefault(node.lineno, set()).add(f"{owner}.{node.func.attr}")
+
+            for child in ast.iter_child_nodes(node):
+                visit(child)
+
+            if isinstance(node, ast.ClassDef):
+                class_stack.pop()
+
+        visit(tree)
+        return targets
 
     @staticmethod
     def _source_contexts(source_text):

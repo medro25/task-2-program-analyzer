@@ -1,8 +1,13 @@
 import json
+import logging
 import os
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
 class AIReviewer:
@@ -10,9 +15,17 @@ class AIReviewer:
 
     API_URL = "https://api.openai.com/v1/responses"
     DEFAULT_MODEL = "gpt-5"
+    REQUEST_TIMEOUT_SECONDS = 90
+    MAX_ATTEMPTS = 2
+    RETRY_DELAY_SECONDS = 3
+    RETRYABLE_HTTP_CODES = {408, 429, 500, 502, 503, 504}
 
-    def __init__(self, model=None):
+    def __init__(self, model=None, timeout=None, max_attempts=None, retry_delay=None):
         self.model = model or os.environ.get("OPENAI_MODEL") or self.DEFAULT_MODEL
+        self.timeout = timeout or self.REQUEST_TIMEOUT_SECONDS
+        self.max_attempts = max_attempts or self.MAX_ATTEMPTS
+        self.retry_delay = retry_delay if retry_delay is not None else self.RETRY_DELAY_SECONDS
+        self.logger = logging.getLogger(__name__)
 
     def review(self, result, source):
         api_key = os.environ.get("OPENAI_API_KEY")
@@ -23,6 +36,11 @@ class AIReviewer:
                 "Set OPENAI_API_KEY or run without --ai-review."
             )
 
+        self.logger.info(
+            "AI review started for %s using %s",
+            Path(source).name,
+            self.model,
+        )
         prompt = self._prompt(result, source)
         payload = {
             "model": self.model,
@@ -66,15 +84,67 @@ class AIReviewer:
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                data = json.loads(response.read().decode("utf-8"))
+            data = self._send_request(request)
         except urllib.error.HTTPError as error:
             details = error.read().decode("utf-8", errors="replace")
+            self.logger.error("AI review failed with HTTP %s", error.code)
             return f"AI review failed with HTTP {error.code}: {details}"
         except Exception as error:
-            return f"AI review failed: {error}"
+            self.logger.error(
+                "AI review failed after %d attempts: %s",
+                self.max_attempts,
+                error,
+            )
+            return (
+                f"AI review failed after {self.max_attempts} "
+                f"attempts: {error}"
+            )
 
+        self.logger.info("AI review finished")
         return self._extract_text(data) or "AI review completed with no text output."
+
+    def _send_request(self, request):
+        """Send the OpenAI request with a bounded retry loop."""
+
+        for attempt in range(1, self.max_attempts + 1):
+            self.logger.info(
+                "AI review attempt %d/%d, timeout %ds",
+                attempt,
+                self.max_attempts,
+                self.timeout,
+            )
+            try:
+                with urllib.request.urlopen(
+                    request,
+                    timeout=self.timeout,
+                ) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as error:
+                if not self._should_retry_http(error, attempt):
+                    raise
+                last_error = error
+            except (TimeoutError, urllib.error.URLError, OSError) as error:
+                if attempt == self.max_attempts:
+                    raise
+                last_error = error
+
+            self.logger.warning(
+                "AI review attempt %d/%d failed: %s",
+                attempt,
+                self.max_attempts,
+                last_error,
+            )
+            if self.retry_delay:
+                self.logger.info("Retrying AI review in %ds", self.retry_delay)
+                time.sleep(self.retry_delay)
+
+        raise last_error
+
+    def _should_retry_http(self, error, attempt):
+        return (
+            error.code in self.RETRYABLE_HTTP_CODES
+            and attempt < self.max_attempts
+        )
 
     def _prompt(self, result, source):
         source = Path(source)
