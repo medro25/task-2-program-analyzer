@@ -1,0 +1,12 @@
+services:
+  analyzer:
+    build:
+      context: .
+      args:
+        JOERN_VERSION: ${JOERN_VERSION:-}
+    env_file:
+      - .env
+    volumes:
+      - ./dataset:/app/dataset:ro
+      - ./reports:/app/reports
+    command: ["dataset"]

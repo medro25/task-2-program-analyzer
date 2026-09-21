@@ -1,0 +1,6 @@
+python-dotenv>=1.0.0
+
+# Docker installs Joern automatically.
+# For local non-Docker runs, install Joern separately and keep the executable at
+# ~/bin/joern/joern-cli/joern, or pass a custom path with:
+# python analyzer.py --joern /path/to/joern
