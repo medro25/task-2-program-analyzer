@@ -159,6 +159,28 @@ python analyzer.py dataset/7_bank_account.py --joern /path/to/joern
 You can also set `JOERN_PATH` in your shell, but this is optional. Docker sets
 the Joern path automatically, so `JOERN_PATH` is not needed when using Docker.
 
+### Recommended Local Order
+
+Use this order when running the project locally:
+
+1. Install the Python dependencies.
+2. Install or configure Joern.
+3. Run the unit tests.
+4. Run the analyzer.
+5. Open the generated report in `reports/`.
+
+Run the tests first:
+
+```bash
+python -m unittest discover -s tests
+```
+
+Then run the analyzer. For example:
+
+```bash
+python analyzer.py dataset/7_bank_account.py --check-path --ai-review
+```
+
 ### Report Location
 
 Reports are written to:
@@ -174,6 +196,12 @@ python analyzer.py dataset/7_bank_account.py --reports my_reports
 ```
 
 ### Common Local Run Commands
+
+Run the unit tests before using one of these analyzer commands:
+
+```bash
+python -m unittest discover -s tests
+```
 
 Analyze the whole dataset:
 
@@ -249,6 +277,9 @@ Run this from the project root folder:
 docker compose build
 ```
 
+This step builds the image and runs the unit tests inside Docker. If the build
+passes, then run the analyzer commands.
+
 The Docker image installs:
 
 - Java runtime
@@ -257,6 +288,13 @@ The Docker image installs:
 - Joern
 
 ### Run with Docker Compose
+
+Recommended Docker order:
+
+1. Build the image.
+2. Let the Docker build run the unit tests.
+3. Run the analyzer command.
+4. Check the generated report in `reports/`.
 
 Analyze the whole dataset:
 
@@ -443,7 +481,21 @@ You can create an API key here:
 All commands below should be run from the project root folder. That is the
 folder that contains `analyzer.py`, `Dockerfile`, and `compose.yaml`.
 
+The recommended order is:
+
+1. Run the unit tests.
+2. Run the analyzer mode you want.
+3. Check the generated report in `reports/`.
+
 ### Local Commands
+
+Step 1: run the tests.
+
+```bash
+python -m unittest discover -s tests
+```
+
+Step 2: choose one analyzer command.
 
 Normal analysis of the whole dataset:
 
@@ -488,6 +540,14 @@ python analyzer.py dataset --check-path --ai-review
 ```
 
 ### Docker Compose Commands
+
+Step 1: build the Docker image. This also runs the unit tests.
+
+```bash
+docker compose build
+```
+
+Step 2: choose one analyzer command.
 
 Normal analysis of the whole dataset:
 
@@ -554,7 +614,10 @@ docker run --rm \
 
 ## Testing
 
-Run the unit tests locally:
+Run the unit tests before running the analyzer, before submitting the project,
+and before pushing new code changes.
+
+Local test command:
 
 ```bash
 python -m unittest discover -s tests
